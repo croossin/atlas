@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas QA Report — Coverdesk</title>
+<style>
+  :root{
+    --bg:#0b0c0e; --panel:#121317; --panel-2:#16181d; --raise:#1b1e24;
+    --line:#25282f; --line-soft:#1c1f25;
+    --ink:#e9eaee; --sub:#989ca6; --faint:#686c76; --faintest:#4a4e57;
+    --pass:#37c07a; --pass-bg:rgba(55,192,122,.11); --pass-line:rgba(55,192,122,.32);
+    --fail:#f2604e; --fail-bg:rgba(242,96,78,.11); --fail-line:rgba(242,96,78,.34);
+    --skip:#565a63;
+    --agent:#4bd0d1; --agent-bg:rgba(75,208,209,.09); --agent-line:rgba(75,208,209,.3);
+    --amber:#e0a53f;
+    --mono:'SF Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    --radius:13px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);
+    font-size:14px;line-height:1.5;letter-spacing:-.005em;
+    background-image:radial-gradient(120% 60% at 50% -10%,#141620 0%,var(--bg) 55%);}
+  a{color:var(--agent);text-decoration:none}
+  a:hover{color:#7fe0e0}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 28px}
+
+  /* ---------- header ---------- */
+  header.site{position:sticky;top:0;z-index:40;
+    background:rgba(11,12,14,.82);backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line-soft);}
+  .hbar{display:flex;align-items:center;gap:22px;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;letter-spacing:-.02em}
+  .glyph{width:22px;height:22px;position:relative;flex:none}
+  .glyph:before{content:"";position:absolute;inset:0;background:var(--ink);
+    clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);}
+  .glyph:after{content:"";position:absolute;inset:6px;background:var(--bg);
+    clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);}
+  .brand .sub{color:var(--faint);font-weight:500;letter-spacing:.02em;font-size:11.5px;
+    padding-left:11px;margin-left:3px;border-left:1px solid var(--line);}
+  .hmeta{margin-left:auto;display:flex;align-items:center;gap:20px;font-size:12.5px}
+  .hmeta .m{display:flex;flex-direction:column;line-height:1.35}
+  .hmeta .m .k{color:var(--faintest);font-size:10px;text-transform:uppercase;letter-spacing:.09em}
+  .hmeta .m .v{color:var(--sub);font-family:var(--mono);font-size:12px}
+  .envchip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);
+    font-size:12px;padding:7px 12px;border-radius:8px;
+    background:rgba(224,165,63,.09);border:1px solid rgba(224,165,63,.34);color:var(--amber);}
+  .envchip b{color:#f4c877;font-weight:600}
+  .envchip .warn{width:6px;height:6px;border-radius:50%;background:var(--amber);
+    box-shadow:0 0 0 3px rgba(224,165,63,.18);}
+
+  /* ---------- summary band ---------- */
+  .summary{padding:44px 0 38px;display:grid;grid-template-columns:auto 1fr;gap:44px;align-items:center}
+  .verdict-big{display:flex;flex-direction:column;gap:8px}
+  .verdict-big .lead{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+  .verdict-big .state{font-size:52px;font-weight:680;letter-spacing:-.03em;line-height:.95}
+  .verdict-big.fail .state{color:var(--fail)}
+  .verdict-big.pass .state{color:var(--pass)}
+  .verdict-big .ratio{color:var(--sub);font-size:14px;font-family:var(--mono)}
+  .verdict-big .ratio b{color:var(--ink)}
+  .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--line-soft);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .stat{background:var(--panel);padding:18px 20px;display:flex;flex-direction:column;gap:7px}
+  .stat .k{font-size:11px;color:var(--faint);letter-spacing:.02em}
+  .stat .v{font-size:27px;font-weight:640;letter-spacing:-.02em;font-family:var(--mono)}
+  .stat .v.pass{color:var(--pass)} .stat .v.fail{color:var(--fail)}
+  .stat .v .of{color:var(--faintest);font-size:17px;font-weight:500}
+
+  /* ---------- flow card ---------- */
+  .flows{display:flex;flex-direction:column;gap:22px;padding-bottom:80px}
+  .flow{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .flow.fail{border-color:var(--fail-line)}
+  .flow-head{display:flex;align-items:center;gap:15px;padding:18px 22px;border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(180deg,rgba(255,255,255,.012),transparent);}
+  .sdot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:1px}
+  .sdot.pass{background:var(--pass);box-shadow:0 0 0 4px var(--pass-bg)}
+  .sdot.fail{background:var(--fail);box-shadow:0 0 0 4px var(--fail-bg)}
+  .flow-title{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .flow-title .n{font-size:15.5px;font-weight:600;letter-spacing:-.015em;display:flex;align-items:center;gap:11px}
+  .flow-title .n .badge{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px;letter-spacing:.02em}
+  .badge.pass{color:var(--pass);background:var(--pass-bg)}
+  .badge.fail{color:var(--fail);background:var(--fail-bg)}
+  .flow-title .d{color:var(--sub);font-size:13px}
+  .flow-meta{margin-left:auto;display:flex;align-items:center;gap:18px}
+  .flow-meta .dur{font-family:var(--mono);font-size:12.5px;color:var(--faint)}
+  /* tabs */
+  .tabs{display:inline-flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px}
+  .tabs button{appearance:none;border:0;background:transparent;color:var(--sub);
+    font-family:var(--ui);font-size:12.5px;font-weight:550;padding:6px 14px;border-radius:6px;cursor:pointer;
+    display:flex;align-items:center;gap:7px;letter-spacing:-.01em}
+  .tabs button .cnt{font-family:var(--mono);font-size:10.5px;color:var(--faintest)}
+  .tabs button.on{background:var(--raise);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .tabs button.on .cnt{color:var(--sub)}
+  .pane{display:none}
+  .pane.on{display:block}
+
+  /* ---------- step timeline ---------- */
+  .timeline{padding:8px 22px 18px 22px}
+  .step{position:relative;padding-left:34px}
+  .step:before{content:"";position:absolute;left:11px;top:0;bottom:0;width:1.5px;background:var(--line)}
+  .step:first-child:before{top:16px}
+  .step:last-child:before{bottom:calc(100% - 16px)}
+  .node{position:absolute;left:5px;top:9px;width:14px;height:14px;border-radius:50%;
+    display:grid;place-items:center;background:var(--panel);z-index:2}
+  .node svg{width:14px;height:14px}
+  .node.pass circle{fill:var(--pass-bg)} .node.pass path{stroke:var(--pass)}
+  .node.fail circle{fill:var(--fail-bg)} .node.fail path{stroke:var(--fail)}
+  .node.skip circle{fill:transparent;stroke:var(--line)} .node.skip path{stroke:var(--skip)}
+
+  /* scripted row */
+  .scripted{display:flex;align-items:flex-start;gap:14px;padding:6.5px 10px 6.5px 8px;margin:0 -10px;
+    border-radius:8px;min-height:31px}
+  .scripted:hover{background:var(--panel-2)}
+  .scripted .act{font-family:var(--mono);font-size:12.5px;line-height:1.55;color:#c8ccd4;flex:1;min-width:0;
+    word-break:break-word}
+  .scripted .act .fn{color:var(--ink);font-weight:600}
+  .scripted .act .arg{color:var(--faint)}
+  .scripted .act .str{color:#8fd6b0}
+  .scripted .note{color:var(--sub);font-family:var(--ui);font-size:12px;margin-top:2px}
+  .scripted .dur{font-family:var(--mono);font-size:11.5px;color:var(--faintest);flex:none;padding-top:1px;min-width:34px;text-align:right}
+  .step.is-skip .scripted{opacity:.4} .step.is-skip:hover .scripted{opacity:.55}
+  .step.is-skip .act .str, .step.is-skip .act .fn{color:var(--skip)}
+  .skiptag{font-family:var(--mono);font-size:10px;color:var(--skip);border:1px solid var(--line);
+    padding:1px 6px;border-radius:4px;letter-spacing:.03em}
+
+  /* collapsible screenshot / transcript */
+  details.col{margin:5px 0 2px}
+  details.col>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    font-size:11.5px;color:var(--faint);font-family:var(--ui);padding:3px 0;user-select:none;letter-spacing:-.005em}
+  details.col>summary::-webkit-details-marker{display:none}
+  details.col>summary:hover{color:var(--sub)}
+  details.col>summary .chev{width:9px;height:9px;transition:transform .15s;color:var(--faintest)}
+  details.col[open]>summary .chev{transform:rotate(90deg)}
+  .shot-thumb{margin-top:8px;border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    max-width:420px;cursor:zoom-in;position:relative;background:#000;display:block}
+  .shot-thumb img{display:block;width:100%;height:auto}
+  .shot-thumb .expand{position:absolute;right:8px;bottom:8px;background:rgba(11,12,14,.82);
+    border:1px solid var(--line);color:var(--sub);font-size:10.5px;font-family:var(--mono);
+    padding:3px 7px;border-radius:6px;backdrop-filter:blur(4px)}
+
+  /* ---------- agent step ---------- */
+  .agent-step{margin:10px -10px;padding:16px 18px;border-radius:11px;
+    background:var(--agent-bg);border:1px solid var(--agent-line);position:relative}
+  .agent-step.fail{background:var(--fail-bg);border-color:var(--fail-line)}
+  .agent-head{display:flex;align-items:flex-start;gap:12px}
+  .agent-mark{flex:none;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+    background:var(--raise);border:1px solid var(--agent-line);color:var(--agent);margin-top:1px}
+  .agent-step.fail .agent-mark{border-color:var(--fail-line);color:var(--fail)}
+  .agent-mark svg{width:15px;height:15px}
+  .agent-goal{flex:1;min-width:0}
+  .agent-goal .lbl{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  .agent-goal .lbl .tag{font-size:10px;letter-spacing:.11em;text-transform:uppercase;font-weight:650;color:var(--agent)}
+  .agent-step.fail .agent-goal .lbl .tag{color:var(--fail)}
+  .agent-goal .lbl .metric{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .agent-goal .lbl .metric b{color:var(--sub);font-weight:600}
+  .agent-goal .g{font-size:14px;color:var(--ink);font-weight:500;letter-spacing:-.01em}
+
+  /* verdict card */
+  .verdict{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .verdict .vtop{display:flex;align-items:center;gap:10px;padding:13px 16px 0}
+  .vpill{font-family:var(--mono);font-size:10.5px;font-weight:650;letter-spacing:.06em;
+    padding:3px 9px;border-radius:6px;text-transform:uppercase}
+  .vpill.pass{color:var(--pass);background:var(--pass-bg)}
+  .vpill.fail{color:var(--fail);background:var(--fail-bg)}
+  .verdict .vsum{padding:8px 16px 0;font-size:14.5px;line-height:1.5;font-weight:600;color:var(--ink);letter-spacing:-.012em}
+  .verdict .vsum b{color:var(--fail);font-weight:700}
+  .verdict.pass .vsum b{color:var(--pass)}
+  .verdict .vreason{padding:9px 16px 0;font-size:13px;line-height:1.6;color:var(--sub)}
+  .verdict .vreason code{font-family:var(--mono);font-size:12px;color:#c8ccd4;background:var(--bg);padding:1px 5px;border-radius:4px}
+  .evidence{padding:12px 16px 16px}
+  .evidence .etitle{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:9px}
+  .ev{display:grid;grid-template-columns:74px 1fr;gap:12px;padding:7px 0;border-top:1px solid var(--line-soft);align-items:start}
+  .ev:first-of-type{border-top:0}
+  .ev .elabel{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.03em;padding-top:1px}
+  .ev .elabel.exp{color:var(--agent)} .ev .elabel.act{color:var(--fail)} .ev .elabel.ok{color:var(--pass)}
+  .ev .etext{font-size:12.5px;line-height:1.55;color:#c3c7cf;font-family:var(--mono)}
+  .ev .etext .hl{color:var(--ink);font-weight:600}
+  .ev .etext .bad{color:var(--fail);font-weight:600}
+  .ev .etext .good{color:var(--pass);font-weight:600}
+
+  /* transcript */
+  .transcript{margin-top:11px;border-top:1px solid var(--line-soft);padding-top:11px}
+  .tx{margin-top:9px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px 14px;
+    max-height:340px;overflow:auto}
+  .txrow{display:flex;gap:11px;padding:5px 0;align-items:flex-start}
+  .txrow .tk{flex:none;font-family:var(--mono);font-size:9.5px;font-weight:650;letter-spacing:.05em;
+    padding:2px 6px;border-radius:5px;margin-top:1px;text-transform:uppercase}
+  .txrow.call .tk{color:var(--agent);background:var(--agent-bg)}
+  .txrow.think .tk{color:var(--faint);background:var(--line-soft)}
+  .txrow .tc{font-size:12.5px;line-height:1.6}
+  .txrow.call .tc{font-family:var(--mono);color:#c8ccd4;font-size:12px;word-break:break-word}
+  .txrow.think .tc{color:var(--sub);font-style:italic}
+  .txrow.call .tc .k{color:#8fd6b0}
+
+  /* ---------- journey / storyboard ---------- */
+  .journey{padding:20px 22px 24px}
+  .journey .jhint{font-size:12px;color:var(--faint);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .journey .jhint .k{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--sub)}
+  .filmstrip{display:flex;gap:0;overflow-x:auto;padding:4px 2px 18px;scrollbar-width:thin}
+  .filmstrip::-webkit-scrollbar{height:8px}
+  .filmstrip::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  .frame-wrap{display:flex;align-items:center;flex:none}
+  .frame{width:236px;flex:none;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;cursor:zoom-in;transition:border-color .12s,transform .12s}
+  .frame:hover{border-color:var(--faint);transform:translateY(-2px)}
+  .frame.fail{border-color:var(--fail);box-shadow:0 0 0 1px var(--fail-line),0 8px 30px rgba(242,96,78,.12)}
+  .frame .thumb{position:relative;aspect-ratio:1280/900;background:#0e0f12;overflow:hidden}
+  .frame .thumb img{width:100%;height:100%;object-fit:cover;object-position:top}
+  .hlring{position:absolute;border:2px solid var(--amber);border-radius:5px;
+    box-shadow:0 0 0 2px rgba(224,165,63,.25),0 0 0 9999px rgba(9,10,12,.35);pointer-events:none}
+  .frame.fail .hlring{border-color:var(--fail);box-shadow:0 0 0 2px var(--fail-line),0 0 0 9999px rgba(9,10,12,.4)}
+  .frame .cap{padding:10px 12px 12px}
+  .frame .cap .top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .fnum{font-family:var(--mono);font-size:10px;color:var(--faint);background:var(--bg);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px}
+  .kind-mark{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;padding:2px 7px;border-radius:5px}
+  .kind-mark.scripted{color:var(--sub);background:var(--line-soft)}
+  .kind-mark.agent{color:var(--agent);background:var(--agent-bg)}
+  .kind-mark .kd{width:5px;height:5px;border-radius:50%}
+  .kind-mark.scripted .kd{background:var(--faint)} .kind-mark.agent .kd{background:var(--agent)}
+  .frame .cap .ctext{font-family:var(--mono);font-size:11.5px;line-height:1.5;color:#c8ccd4;word-break:break-word}
+  .frame.fail .cap .ctext{font-family:var(--ui);color:var(--ink);font-weight:500;font-size:12px}
+  .frame.fail .cap .top .kind-mark{color:var(--fail);background:var(--fail-bg)}
+  .frame.fail .cap .top .kind-mark .kd{background:var(--fail)}
+  .connector{flex:none;width:30px;display:grid;place-items:center;color:var(--line)}
+  .connector.tofail{color:var(--fail-line)}
+  .connector svg{width:16px;height:16px}
+
+  /* ---------- lightbox ---------- */
+  #lb{position:fixed;inset:0;z-index:100;background:rgba(6,7,9,.9);backdrop-filter:blur(8px);
+    display:none;align-items:center;justify-content:center;padding:40px}
+  #lb.on{display:flex}
+  .lb-inner{max-width:1180px;width:100%;display:flex;flex-direction:column;gap:14px}
+  .lb-imgwrap{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#000;
+    box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .lb-imgwrap img{display:block;width:100%;height:auto}
+  .lb-cap{display:flex;align-items:center;gap:12px;color:var(--sub);font-size:13px}
+  .lb-cap .ctext{font-family:var(--mono);font-size:12.5px;color:#c8ccd4}
+  .lb-cap.fail .ctext{font-family:var(--ui);color:var(--ink)}
+  .lb-close{position:absolute;top:16px;right:16px;z-index:2;width:34px;height:34px;border-radius:8px;
+    background:rgba(11,12,14,.7);border:1px solid var(--line);color:var(--sub);cursor:pointer;
+    font-size:16px;display:grid;place-items:center;backdrop-filter:blur(6px)}
+  .lb-close:hover{color:var(--ink);border-color:var(--faint)}
+
+  /* footer */
+  .foot{border-top:1px solid var(--line-soft);padding:22px 0 60px;color:var(--faintest);font-size:11.5px;
+    display:flex;gap:8px;align-items:center;font-family:var(--mono)}
+  .foot .glyph{width:14px;height:14px;opacity:.6}
+
+  @media print{
+    body{background:#fff;color:#111}
+    header.site{position:static}
+    .frame:hover{transform:none}
+    details.col{display:none}
+    .filmstrip{flex-wrap:wrap;overflow:visible}
+  }
+</style>
+</head>
+<body>
+<header class="site"><div class="wrap hbar">
+  <div class="brand"><span class="glyph"></span>Atlas<span class="sub">QA Report</span></div>
+  <div class="hmeta" id="hmeta"></div>
+</div></header>
+
+<main class="wrap">
+  <section class="summary" id="summary"></section>
+  <section class="flows" id="flows"></section>
+  <div class="foot"><span class="glyph"></span><span id="footmeta"></span></div>
+</main>
+
+<div id="lb"><div class="lb-inner">
+  <div class="lb-imgwrap"><button class="lb-close" onclick="closeLb()">✕</button>
+    <img id="lb-img" alt=""><div id="lb-ring"></div></div>
+  <div class="lb-cap" id="lb-cap"></div>
+</div></div>
+
+<script>
+/* ============================ SCREENSHOT ASSETS ============================ */
+/*__ATLAS_DATA__*/
+const ICON = {
+  check:'<svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="7"/><path d="M4 7.2l2 2 4-4.4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  cross:'<svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="7"/><path d="M4.6 4.6l4.8 4.8M9.4 4.6l-4.8 4.8" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  skip:'<svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6.4" stroke-width="1.2"/><path d="M4.4 7h5.2" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  agent:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M7 8h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2Z"/><path d="M9.5 13h.01M14.5 13h.01"/><path d="M3 12v3M21 12v3"/></svg>',
+  chev:'<svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3l4 3-4 3"/></svg>',
+  arrow:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5 5-5 5"/></svg>'
+};
+function nodeSvg(kind){
+  const g = kind==='pass'?ICON.check:kind==='fail'?ICON.cross:ICON.skip;
+  return '<span class="node '+kind+'">'+g+'</span>';
+}
+/* highlight scripted action string: fn(...) name="x" style.
+   Quoted strings are protected with sentinel chars first so the later
+   passes can't match the class attributes of already-inserted spans. */
+function fmtAction(s){
+  var e = s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  e = e.replace(/"([^"]*)"/g, "\u0001$1\u0002");
+  e = e.replace(/^(\w+)/, "<span class=\"fn\">$1</span>");
+  e = e.replace(/(\b\w+=)(?=\u0001)/g, "<span class=\"arg\">$1</span>");
+  e = e.replace(/\u0001([^\u0002]*)\u0002/g, "<span class=\"str\">\"$1\"</span>");
+  return e;
+}
+
+/* ============================ DATA ============================ */
+/* ============================ RENDER ============================ */
+function el(html){const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstElementChild;}
+
+/* header meta */
+function renderHeader(){
+  document.getElementById('hmeta').innerHTML =
+    '<div class="m"><span class="k">Target</span><span class="v">'+RUN.app+'</span></div>'+
+    '<div class="m"><span class="k">Base URL</span><span class="v">'+RUN.baseUrl+'</span></div>'+
+    '<div class="m"><span class="k">Finished</span><span class="v">'+RUN.timestamp+'</span></div>'+
+    '<div class="m"><span class="k">Duration</span><span class="v">'+RUN.duration+'</span></div>'+
+    (RUN.injectedBug?'<span class="envchip"><span class="warn"></span>injected env&nbsp;<b>'+RUN.injectedBug+'</b></span>':'');
+  document.getElementById('footmeta').textContent =
+    RUN.runId+'  ·  '+RUN.commit+'  ·  generated by Atlas '+RUN.timestamp;
+}
+
+/* summary band */
+function renderSummary(){
+  const passed = RUN.flows.filter(f=>f.status==='pass').length;
+  const failed = RUN.flows.filter(f=>f.status==='fail').length;
+  let steps=0, agentSteps=0;
+  RUN.flows.forEach(f=>f.steps.forEach(s=>{steps++; if(s.k==='a') agentSteps++;}));
+  const failing = failed>0;
+  document.getElementById('summary').innerHTML =
+    '<div class="verdict-big '+(failing?'fail':'pass')+'">'+
+      '<span class="lead">Run result</span>'+
+      '<span class="state">'+(failing?'Failed':'Passed')+'</span>'+
+      '<span class="ratio"><b>'+passed+'</b>/'+RUN.flows.length+' flows passed'+
+        (failing?' · merge blocked':'')+'</span>'+
+    '</div>'+
+    '<div class="stat-row">'+
+      '<div class="stat"><span class="k">Flows passed</span><span class="v pass">'+passed+'<span class="of"> /'+RUN.flows.length+'</span></span></div>'+
+      '<div class="stat"><span class="k">Flows failed</span><span class="v '+(failed?'fail':'')+'">'+failed+'</span></div>'+
+      '<div class="stat"><span class="k">Total steps</span><span class="v">'+steps+'</span></div>'+
+      '<div class="stat"><span class="k">Agent steps</span><span class="v">'+agentSteps+'</span></div>'+
+    '</div>';
+}
+
+/* scripted step */
+function renderScripted(s,i){
+  const skip = s.st==='skip';
+  let inner='<div class="scripted"><div class="act">'+fmtAction(s.a)+
+    (s.note?'<div class="note">'+s.note+'</div>':'')+'</div>'+
+    (skip?'<span class="skiptag">skipped</span>':'<span class="dur">'+s.d+'</span>')+'</div>';
+  if(s.shot){
+    inner+='<details class="col"><summary>'+ICON.chev+'Screenshot</summary>'+shotThumb(s.shot,s.a,false,null)+'</details>';
+  }
+  return '<div class="step '+(skip?'is-skip':'')+'">'+nodeSvg(s.st)+inner+'</div>';
+}
+
+/* agent step */
+function renderAgent(s){
+  const fail = s.st==='fail';
+  const v=s.verdict;
+  let ev='<div class="evidence"><div class="etitle">Evidence</div>'+
+    v.evidence.map(e=>'<div class="ev"><span class="elabel '+e.t+'">'+
+      (e.t==='exp'?'Expected':e.t==='act'?'Actual':'Observed')+'</span>'+
+      '<span class="etext">'+e.x+'</span></div>').join('')+'</div>';
+  let tx='<div class="transcript"><details class="col"><summary>'+ICON.chev+
+    'Agent transcript ('+s.transcript.length+' entries)</summary><div class="tx">'+
+    s.transcript.map(t=>'<div class="txrow '+(t.t==='call'?'call':'think')+'">'+
+      '<span class="tk">'+(t.t==='call'?'tool':'think')+'</span>'+
+      '<span class="tc">'+(t.t==='call'?fmtCall(t.c):t.c)+'</span></div>').join('')+
+    '</div></details></div>';
+  let shot = s.shot?'<details class="col"><summary>'+ICON.chev+'Final screenshot</summary>'+shotThumb(s.shot,s.goal,fail,null)+'</details>':'';
+  return '<div class="step">'+nodeSvg(s.st)+
+    '<div class="agent-step '+(fail?'fail':'')+'">'+
+      '<div class="agent-head">'+
+        '<div class="agent-mark">'+ICON.agent+'</div>'+
+        '<div class="agent-goal"><div class="lbl">'+
+          '<span class="tag">Agent step</span>'+
+          '<span class="metric">⏱ <b>'+s.d+'</b></span>'+
+        '</div><div class="g">'+s.goal+'</div></div>'+
+      '</div>'+
+      '<div class="verdict '+(fail?'fail':'pass')+'">'+
+        '<div class="vtop"><span class="vpill '+(fail?'fail':'pass')+'">'+(fail?'Verdict · Fail':'Verdict · Pass')+'</span></div>'+
+        '<div class="vsum">'+v.summary+'</div>'+
+        '<div class="vreason">'+v.reasoning+'</div>'+
+        ev+
+      '</div>'+
+      tx+shot+
+    '</div></div>';
+}
+function fmtCall(c){
+  return c.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/"([\w.-]+)":/g,'<span class="k">"$1"</span>:');
+}
+
+/* lightbox registry — avoids complex inline attribute values */
+const LB=[];
+function lbRef(key,cap,fail,hl){LB.push({key,cap,fail,hl});return LB.length-1;}
+function ringStyle(hl){return 'left:'+hl.x+'%;top:'+hl.y+'%;width:'+hl.w+'%;height:'+hl.h+'%';}
+
+/* shot thumbnail (collapsible / lightbox trigger) */
+function shotThumb(key,cap,fail,hl){
+  const ring = hl?'<div class="hlring" style="'+ringStyle(hl)+'"></div>':'';
+  return '<a class="shot-thumb" data-lb="'+lbRef(key,cap,fail,hl)+'">'+
+    '<img src="'+SHOTS[key]+'" alt="">'+ring+'<span class="expand">1280×900 · expand</span></a>';
+}
+
+/* journey filmstrip */
+function renderJourney(f){
+  let frames = f.frames.map((fr,i)=>{
+    const ring = fr.hl?'<div class="hlring" style="left:'+fr.hl.x+'%;top:'+fr.hl.y+'%;width:'+fr.hl.w+'%;height:'+fr.hl.h+'%"></div>':'';
+    const kind = fr.kind==='a'?'agent':'scripted';
+    const kindLabel = fr.kind==='a'?'Agent':'Scripted';
+    const frameHtml =
+      '<div class="frame '+(fr.fail?'fail':'')+'" data-lb="'+lbRef(fr.shot,fr.cap,fr.fail,fr.hl||null)+'">'+
+        '<div class="thumb"><img src="'+SHOTS[fr.shot]+'" alt="">'+ring+'</div>'+
+        '<div class="cap"><div class="top">'+
+          '<span class="fnum">'+String(i+1).padStart(2,'0')+'</span>'+
+          '<span class="kind-mark '+kind+'"><span class="kd"></span>'+kindLabel+'</span>'+
+        '</div><div class="ctext">'+esc(fr.cap)+'</div></div>'+
+      '</div>';
+    const conn = i<f.frames.length-1 ?
+      '<div class="connector '+(f.frames[i+1].fail?'tofail':'')+'">'+ICON.arrow+'</div>' : '';
+    return '<div class="frame-wrap">'+frameHtml+conn+'</div>';
+  }).join('');
+  return '<div class="journey"><div class="jhint">'+
+    '<span>Storyboard of the run — one frame per step. Highlighted rings mark the element Atlas clicked or filled.</span>'+
+    '<span class="k">click to expand</span></div>'+
+    '<div class="filmstrip">'+frames+'</div></div>';
+}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+
+/* flow card */
+function renderFlow(f,idx){
+  const isFail=f.status==='fail';
+  const timeline = '<div class="timeline">'+f.steps.map((s,i)=>
+    s.k==='a'?renderAgent(s):renderScripted(s,i)).join('')+'</div>';
+  const card = el(
+    '<div class="flow '+f.status+'" id="flow-'+f.id+'">'+
+      '<div class="flow-head">'+
+        '<span class="sdot '+f.status+'"></span>'+
+        '<div class="flow-title"><div class="n">'+f.name+
+          '<span class="badge '+f.status+'">'+(isFail?'FAIL':'PASS')+'</span></div>'+
+          '<div class="d">'+f.desc+'</div></div>'+
+        '<div class="flow-meta"><span class="dur">'+f.duration+'</span>'+
+          '<div class="tabs">'+
+            '<button data-tab="results" class="on">Results <span class="cnt">'+f.steps.length+'</span></button>'+
+            '<button data-tab="journey">Journey <span class="cnt">'+f.frames.length+'</span></button>'+
+          '</div></div>'+
+      '</div>'+
+      '<div class="pane on" data-pane="results">'+timeline+'</div>'+
+      '<div class="pane" data-pane="journey">'+renderJourney(f)+'</div>'+
+    '</div>');
+  // tab wiring
+  const btns=card.querySelectorAll('.tabs button');
+  btns.forEach(b=>b.addEventListener('click',()=>{
+    btns.forEach(x=>x.classList.remove('on'));b.classList.add('on');
+    card.querySelectorAll('.pane').forEach(p=>
+      p.classList.toggle('on',p.dataset.pane===b.dataset.tab));
+  }));
+  return card;
+}
+
+/* lightbox */
+function openLb(ref){
+  const {key,cap,fail,hl}=LB[ref];
+  const lb=document.getElementById('lb');
+  document.getElementById('lb-img').src=SHOTS[key];
+  const ring=document.getElementById('lb-ring');
+  if(hl){ring.className='hlring '+(fail?'fail':'');
+    ring.style.cssText='position:absolute;left:'+hl.x+'%;top:'+hl.y+'%;width:'+hl.w+'%;height:'+hl.h+'%;'+
+      'border:2px solid '+(fail?'var(--fail)':'var(--amber)')+';border-radius:6px;'+
+      'box-shadow:0 0 0 3px '+(fail?'var(--fail-line)':'rgba(224,165,63,.3)')+',0 0 0 9999px rgba(6,7,9,.55);pointer-events:none';
+  } else ring.style.cssText='display:none';
+  const capEl=document.getElementById('lb-cap');
+  capEl.className='lb-cap'+(fail?' fail':'');
+  capEl.innerHTML=(fail?'<span class="vpill fail">Failure</span>':'')+'<span class="ctext">'+esc(cap)+'</span>';
+  lb.classList.add('on');
+}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-lb]');if(t){e.stopPropagation();openLb(+t.dataset.lb);}});
+function closeLb(){document.getElementById('lb').classList.remove('on');}
+document.getElementById('lb').addEventListener('click',e=>{if(e.target.id==='lb')closeLb();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLb();});
+
+/* boot */
+renderHeader();
+renderSummary();
+const flowsEl=document.getElementById('flows');
+RUN.flows.forEach((f,i)=>flowsEl.appendChild(renderFlow(f,i)));
+</script>
+</body>
+</html>

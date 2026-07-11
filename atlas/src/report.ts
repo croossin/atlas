@@ -1,132 +1,191 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { RunResult } from './types.js';
+import { fileURLToPath } from 'node:url';
+import type { AgentVerdict, FlowResult, JourneyFrame, RunResult, StepResult } from './types.js';
+
+const TEMPLATE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'report.template.html');
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
+function fmtDur(ms: number): string {
+  if (ms < 100) return '0.0s';
+  if (ms < 90_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m}m ${Math.round((ms - m * 60_000) / 1000)}s`;
+}
+
+// Design evidence rows are typed: Expected / Actual / Observed.
+function evidenceType(text: string): 'exp' | 'act' | 'ok' {
+  if (/^expected\b/i.test(text)) return 'exp';
+  if (/^actual\b/i.test(text)) return 'act';
+  return 'ok';
+}
+
+interface ShotMap {
+  [key: string]: string;
+}
+
+function buildData(run: RunResult) {
+  const shots: ShotMap = {};
+  let shotSeq = 0;
+  const addShot = (b64: string, mime: 'png' | 'jpeg'): string => {
+    const key = `s${shotSeq++}`;
+    shots[key] = `data:image/${mime};base64,${b64}`;
+    return key;
+  };
+
+  const flows = run.flows.map((f: FlowResult) => {
+    const steps = f.steps.map((s: StepResult) => {
+      const st = s.status === 'skipped' ? 'skip' : s.status;
+      if (s.kind === 'agent') {
+        const flowStep = f.flow.steps[s.index] as { goal?: string } | undefined;
+        const goal = (flowStep?.goal ?? s.title).trim();
+        const verdict = s.verdict as AgentVerdict | undefined;
+        return {
+          k: 'a',
+          st,
+          d: s.status === 'skipped' ? '—' : fmtDur(s.durationMs),
+          goal: esc(goal).replace(/\n/g, '<br>'),
+          verdict: verdict
+            ? {
+                st: verdict.status,
+                summary: esc(verdict.summary),
+                reasoning: esc(verdict.reasoning),
+                evidence: (verdict.evidence ?? []).map((e) => ({ t: evidenceType(e), x: esc(e) })),
+              }
+            : {
+                st: 'fail',
+                summary: esc(s.detail ?? 'Agent produced no verdict.'),
+                reasoning: '',
+                evidence: [],
+              },
+          transcript: (s.transcript ?? []).map((t) => ({ t: t.kind === 'tool' ? 'call' : 'think', c: esc(t.text) })),
+          shot: s.screenshot ? addShot(s.screenshot, 'png') : undefined,
+        };
+      }
+      return {
+        k: 's',
+        st,
+        a: s.title,
+        d: s.status === 'skipped' ? '—' : fmtDur(s.durationMs),
+        note: s.detail,
+        shot: s.screenshot ? addShot(s.screenshot, 'png') : undefined,
+      };
+    });
+
+    const allFrames = f.steps.flatMap((s: StepResult) =>
+      (s.frames ?? []).map((fr: JourneyFrame) => ({ frame: fr, stepFailed: s.status === 'fail' }))
+    );
+    const frames = allFrames.map(({ frame, stepFailed }, i) => ({
+      shot: addShot(frame.screenshot, 'jpeg'),
+      kind: frame.kind === 'agent' ? 'a' : 's',
+      cap: frame.caption,
+      hl: frame.target
+        ? {
+            x: +frame.target.x.toFixed(2),
+            y: +frame.target.y.toFixed(2),
+            w: +frame.target.w.toFixed(2),
+            h: +frame.target.h.toFixed(2),
+          }
+        : undefined,
+      fail: stepFailed && i === allFrames.length - 1 ? true : undefined,
+    }));
+
+    return {
+      id: f.flow.id,
+      status: f.status,
+      name: f.flow.name,
+      duration: fmtDur(f.durationMs),
+      desc: f.flow.description?.trim() ?? '',
+      steps,
+      frames,
+    };
+  });
+
+  const totalCost = run.flows.flatMap((f) => f.steps).reduce((sum, s) => sum + (s.costUsd ?? 0), 0);
+
+  const runData = {
+    app: run.target,
+    baseUrl: run.baseUrl,
+    timestamp: run.startedAt.replace('T', ' ').slice(0, 16) + ' UTC',
+    duration: fmtDur(run.durationMs),
+    runId: `atlas_${run.startedAt.replace(/[-:TZ.]/g, '').slice(0, 14)}`,
+    commit: run.commit ?? '',
+    injectedBug: Object.entries(run.injectedEnv)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' '),
+    agentSpend: totalCost ? `$${totalCost.toFixed(2)}` : '',
+    config: run.configYaml ?? '',
+    flows,
+  };
+
+  return { shots, runData };
+}
+
+// Header button + overlay showing the atlas.yaml this run executed with.
+// Injected separately from the design's renderer so design re-imports stay clean.
+const CONFIG_VIEWER = `
+<style>
+.cfgbtn{margin-left:auto;display:inline-flex;align-items:center;gap:7px;background:var(--panel-2);
+  color:var(--sub);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;
+  font-family:var(--mono);cursor:pointer;flex:none}
+.cfgbtn:hover{color:var(--ink);border-color:var(--agent-line)}
+.cfgbtn .dot{width:6px;height:6px;border-radius:50%;background:var(--agent);flex:none}
+#cfgov{position:fixed;inset:0;z-index:60;display:none;background:rgba(6,7,9,.72);backdrop-filter:blur(6px)}
+#cfgov.on{display:flex;align-items:center;justify-content:center}
+.cfgpanel{width:min(720px,90vw);max-height:82vh;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.cfghead{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line-soft)}
+.cfghead .t{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.cfghead .s{font-size:12px;color:var(--faint)}
+.cfghead button{margin-left:auto;background:var(--raise);color:var(--sub);border:1px solid var(--line);
+  border-radius:7px;padding:5px 12px;font-size:12px;cursor:pointer}
+.cfghead button:hover{color:var(--ink)}
+.cfgbody{overflow:auto;padding:18px 22px}
+.cfgbody pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.75;color:var(--ink)}
+.cfgbody .c{color:var(--faintest)} .cfgbody .k{color:var(--agent)} .cfgbody .v{color:var(--sub)}
+</style>
+<script>
+(function(){
+  if(!RUN.config) return;
+  var bar=document.querySelector('.hbar');
+  var btn=document.createElement('button');
+  btn.className='cfgbtn';
+  btn.innerHTML='<span class="dot"></span>atlas.yaml';
+  btn.title='View the pipeline config this run executed with';
+  bar.appendChild(btn);
+  var hl=RUN.config.split('\\n').map(function(line){
+    var e=line.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    if(/^\\s*#/.test(e)) return '<span class="c">'+e+'</span>';
+    return e.replace(/^(\\s*[\\w.-]+:)/,'<span class="k">$1</span>')
+            .replace(/(#.*)$/,'<span class="c">$1</span>');
+  }).join('\\n');
+  var ov=document.createElement('div');
+  ov.id='cfgov';
+  ov.innerHTML='<div class="cfgpanel"><div class="cfghead"><span class="t">atlas.yaml</span>'+
+    '<span class="s">pipeline configuration for this run</span><button id="cfgx">✕ close</button></div>'+
+    '<div class="cfgbody"><pre>'+hl+'</pre></div></div>';
+  document.body.appendChild(ov);
+  btn.addEventListener('click',function(){ov.classList.add('on');});
+  document.getElementById('cfgx').addEventListener('click',function(){ov.classList.remove('on');});
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('on');});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')ov.classList.remove('on');});
+})();
+</script>`;
 
 export function writeReport(run: RunResult, outDir: string): { htmlPath: string; jsonPath: string } {
   fs.mkdirSync(outDir, { recursive: true });
   const jsonPath = path.join(outDir, 'results.json');
   fs.writeFileSync(jsonPath, JSON.stringify(run, null, 2));
 
-  const passed = run.flows.filter((f) => f.status === 'pass').length;
-  const failed = run.flows.length - passed;
-  const totalCost = run.flows
-    .flatMap((f) => f.steps)
-    .reduce((sum, s) => sum + (s.costUsd ?? 0), 0);
+  const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+  const { shots, runData } = buildData(run);
+  // "</" must not appear literally inside the inline script.
+  const dataJs = `const SHOTS=${JSON.stringify(shots).replace(/<\//g, '<\\/')};\nconst RUN=${JSON.stringify(runData).replace(/<\//g, '<\\/')};`;
 
-  const flowsHtml = run.flows
-    .map((f) => {
-      const stepsHtml = f.steps
-        .map((s) => {
-          const icon = s.status === 'pass' ? '✓' : s.status === 'fail' ? '✗' : '○';
-          const verdictHtml = s.verdict
-            ? `<div class="verdict verdict-${s.verdict.status}">
-                 <div class="verdict-summary">${esc(s.verdict.summary)}</div>
-                 <div class="verdict-reasoning">${esc(s.verdict.reasoning)}</div>
-                 ${s.verdict.evidence?.length ? `<ul>${s.verdict.evidence.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
-               </div>`
-            : '';
-          const transcriptHtml = s.transcript?.length
-            ? `<details class="transcript"><summary>Agent transcript (${s.transcript.length} entries${
-                s.costUsd ? `, $${s.costUsd.toFixed(4)}` : ''
-              })</summary>
-               ${s.transcript
-                 .map((t) =>
-                   t.kind === 'tool'
-                     ? `<div class="t-tool">→ ${esc(t.text)}</div>`
-                     : `<div class="t-thought">${esc(t.text)}</div>`
-                 )
-                 .join('')}
-               </details>`
-            : '';
-          const shotHtml = s.screenshot
-            ? `<details class="shot"><summary>Screenshot</summary><img src="data:image/png;base64,${s.screenshot}" alt="screenshot"></details>`
-            : '';
-          return `<div class="step step-${s.status}">
-            <div class="step-head">
-              <span class="step-icon">${icon}</span>
-              <span class="step-title">${esc(s.title)}</span>
-              <span class="step-meta">${s.kind === 'agent' ? '🤖 agent · ' : ''}${(s.durationMs / 1000).toFixed(1)}s</span>
-            </div>
-            ${s.detail && !s.verdict ? `<div class="step-detail">${esc(s.detail)}</div>` : ''}
-            ${verdictHtml}${transcriptHtml}${shotHtml}
-          </div>`;
-        })
-        .join('');
-      return `<section class="flow flow-${f.status}">
-        <div class="flow-head">
-          <h2>${f.status === 'pass' ? '✓' : '✗'} ${esc(f.flow.name)}</h2>
-          <span class="flow-meta">${esc(f.flow.id)} · ${(f.durationMs / 1000).toFixed(1)}s</span>
-        </div>
-        ${f.flow.description ? `<p class="flow-desc">${esc(f.flow.description)}</p>` : ''}
-        ${stepsHtml}
-      </section>`;
-    })
-    .join('');
-
-  const injected = Object.entries(run.injectedEnv)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(' ');
-
-  const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Atlas Run — ${esc(run.target)}</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; font-size: 14px; }
-.wrap { max-width: 980px; margin: 0 auto; }
-header { margin-bottom: 24px; }
-h1 { font-size: 24px; margin-bottom: 4px; } h1 span { color: #38bdf8; }
-.sub { color: #94a3b8; font-size: 13px; }
-.pill-row { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
-.pill { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 18px; }
-.pill b { font-size: 20px; display: block; }
-.pill-pass b { color: #4ade80; } .pill-fail b { color: #f87171; }
-.flow { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
-.flow-pass { border-left: 4px solid #4ade80; } .flow-fail { border-left: 4px solid #f87171; }
-.flow-head { display: flex; align-items: baseline; gap: 12px; }
-.flow-head h2 { font-size: 16px; }
-.flow-pass h2 { color: #4ade80; } .flow-fail h2 { color: #f87171; }
-.flow-meta, .step-meta { color: #64748b; font-size: 12px; margin-left: auto; }
-.flow-desc { color: #94a3b8; margin: 6px 0 10px; font-size: 13px; }
-.step { border-top: 1px solid #293548; padding: 8px 4px; }
-.step-head { display: flex; gap: 10px; align-items: baseline; }
-.step-icon { width: 16px; }
-.step-pass .step-icon { color: #4ade80; } .step-fail .step-icon { color: #f87171; } .step-skipped { opacity: 0.45; }
-.step-title { font-family: ui-monospace, monospace; font-size: 12.5px; }
-.step-detail { color: #fca5a5; font-size: 12.5px; margin: 4px 0 0 26px; }
-.step-pass .step-detail { color: #86efac; }
-.verdict { margin: 8px 0 4px 26px; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
-.verdict-pass { background: #052e16; border: 1px solid #166534; }
-.verdict-fail { background: #450a0a; border: 1px solid #991b1b; }
-.verdict-summary { font-weight: 700; margin-bottom: 6px; }
-.verdict-reasoning { color: #cbd5e1; white-space: pre-wrap; }
-.verdict ul { margin: 8px 0 0 18px; color: #cbd5e1; }
-details { margin: 6px 0 0 26px; font-size: 12.5px; }
-summary { cursor: pointer; color: #7dd3fc; }
-.transcript { background: #0b1220; border-radius: 8px; padding: 8px 12px; }
-.t-tool { font-family: ui-monospace, monospace; color: #7dd3fc; padding: 2px 0; }
-.t-thought { color: #cbd5e1; padding: 4px 0; white-space: pre-wrap; }
-.shot img { max-width: 100%; border-radius: 8px; border: 1px solid #334155; margin-top: 8px; }
-footer { color: #475569; font-size: 12px; margin-top: 28px; }
-</style></head><body><div class="wrap">
-<header>
-  <h1>Atlas<span> QA Report</span></h1>
-  <div class="sub">Target: <b>${esc(run.target)}</b> at ${esc(run.baseUrl)} · ${esc(run.startedAt)} · ${(
-    run.durationMs / 1000
-  ).toFixed(1)}s total${injected ? ` · injected: <b>${esc(injected)}</b>` : ''}</div>
-  <div class="pill-row">
-    <div class="pill pill-pass"><b>${passed}</b>flows passed</div>
-    <div class="pill pill-fail"><b>${failed}</b>flows failed</div>
-    <div class="pill"><b>${run.flows.reduce((n, f) => n + f.steps.length, 0)}</b>steps</div>
-    ${totalCost ? `<div class="pill"><b>$${totalCost.toFixed(3)}</b>agent spend</div>` : ''}
-  </div>
-</header>
-${flowsHtml}
-<footer>Generated by Atlas — provision → seed → test → report.</footer>
-</div></body></html>`;
+  const html = template.replace('/*__ATLAS_DATA__*/', dataJs).replace('</body>', `${CONFIG_VIEWER}\n</body>`);
 
   const htmlPath = path.join(outDir, 'report.html');
   fs.writeFileSync(htmlPath, html);

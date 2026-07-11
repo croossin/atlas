@@ -96,5 +96,7 @@ export interface RunResult {
   durationMs: number;
   injectedEnv: Record<string, string>;
   seedSummary?: unknown;
+  configYaml?: string; // raw atlas.yaml this run executed with
+  commit?: string; // "branch @ shortsha" when running in a git checkout
   flows: FlowResult[];
 }

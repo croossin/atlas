@@ -49,7 +49,20 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const configPath = path.resolve(args.config);
   const configDir = path.dirname(configPath);
-  const config = YAML.parse(fs.readFileSync(configPath, 'utf8')) as AtlasConfig;
+  const configYaml = fs.readFileSync(configPath, 'utf8');
+  const config = YAML.parse(configYaml) as AtlasConfig;
+
+  let commit: string | undefined;
+  try {
+    const { execSync } = await import('node:child_process');
+    const opts = { cwd: configDir, stdio: ['ignore', 'pipe', 'ignore'] as ('ignore' | 'pipe')[] };
+    const branch =
+      process.env.GITHUB_HEAD_REF || execSync('git rev-parse --abbrev-ref HEAD', opts).toString().trim();
+    const sha = execSync('git rev-parse --short HEAD', opts).toString().trim();
+    commit = `${branch} @ ${sha}`;
+  } catch {
+    /* not a git checkout — omit */
+  }
 
   const flowsDir = path.resolve(configDir, config.flows);
   const flows = loadFlows(flowsDir, args.flow);
@@ -105,6 +118,8 @@ async function main() {
       durationMs: Date.now() - t0,
       injectedEnv,
       seedSummary,
+      configYaml,
+      commit,
       flows: flowResults,
     };
   } finally {

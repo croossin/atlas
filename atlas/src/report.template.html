@@ -235,20 +235,72 @@
   #lb.on{display:flex}
   .lb-inner{max-width:1180px;width:100%;display:flex;flex-direction:column;gap:14px}
   .lb-imgwrap{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#000;
-    box-shadow:0 30px 80px rgba(0,0,0,.6)}
+    box-shadow:0 30px 80px rgba(0,0,0,.6);touch-action:pan-y}
   .lb-imgwrap img{display:block;width:100%;height:auto}
   .lb-cap{display:flex;align-items:center;gap:12px;color:var(--sub);font-size:13px}
   .lb-cap .ctext{font-family:var(--mono);font-size:12.5px;color:#c8ccd4}
   .lb-cap.fail .ctext{font-family:var(--ui);color:var(--ink)}
-  .lb-close{position:absolute;top:16px;right:16px;z-index:2;width:34px;height:34px;border-radius:8px;
+  .lb-count{font-family:var(--mono);font-size:12px;color:var(--faint);text-align:center}
+  .lb-close{position:absolute;top:16px;right:16px;z-index:3;width:34px;height:34px;border-radius:8px;
     background:rgba(11,12,14,.7);border:1px solid var(--line);color:var(--sub);cursor:pointer;
     font-size:16px;display:grid;place-items:center;backdrop-filter:blur(6px)}
   .lb-close:hover{color:var(--ink);border-color:var(--faint)}
+  .lb-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:44px;height:44px;border-radius:50%;
+    background:rgba(11,12,14,.72);border:1px solid var(--line);color:var(--sub);cursor:pointer;
+    font-size:26px;line-height:1;display:grid;place-items:center;backdrop-filter:blur(6px);
+    transition:color .12s,border-color .12s,opacity .12s;padding-bottom:3px}
+  .lb-nav:hover{color:var(--ink);border-color:var(--faint)}
+  .lb-nav.prev{left:16px} .lb-nav.next{right:16px}
+  .lb-nav[disabled]{opacity:0;pointer-events:none}
 
   /* footer */
   .foot{border-top:1px solid var(--line-soft);padding:22px 0 60px;color:var(--faintest);font-size:11.5px;
     display:flex;gap:8px;align-items:center;font-family:var(--mono)}
   .foot .glyph{width:14px;height:14px;opacity:.6}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:820px){
+    .wrap{padding:0 18px}
+    header.site{position:static}
+    .hbar{height:auto;flex-wrap:wrap;gap:16px;padding:14px 0}
+    .hmeta{margin-left:0;width:100%;order:2;display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 24px;align-items:start}
+    .hmeta .envchip{grid-column:1/-1;width:fit-content;max-width:100%}
+    .cfgbtn{order:1;margin-left:auto !important}
+    .summary{grid-template-columns:1fr;gap:24px;padding:30px 0 26px}
+    .verdict-big .state{font-size:42px}
+    .flow-head{flex-wrap:wrap;gap:12px 14px;padding:16px 18px}
+    .flow-meta{margin-left:0;width:100%;justify-content:flex-start;gap:16px}
+    .tabs{flex:none}
+    .timeline{padding:6px 16px 16px}
+    .journey{padding:16px 16px 20px}
+    .agent-step{padding:14px 14px}
+    .shot-thumb{max-width:100%}
+    #lb{padding:16px}
+  }
+  @media (max-width:560px){
+    .wrap{padding:0 14px}
+    .brand{font-size:14px}
+    .hmeta{gap:12px 16px;font-size:12px}
+    .verdict-big .state{font-size:36px}
+    .stat-row{grid-template-columns:repeat(2,1fr)}
+    .stat{padding:14px 15px}
+    .stat .v{font-size:23px}
+    .flow-head{padding:14px 15px}
+    .flow-title .n{font-size:15px}
+    .flow-meta{flex-wrap:wrap;gap:12px}
+    .timeline{padding:4px 12px 14px}
+    .step{padding-left:30px}
+    .journey{padding:14px 12px 18px}
+    .frame{width:200px}
+    .agent-step{margin:10px -6px;padding:13px 12px}
+    .evidence{padding:12px 12px 14px}
+    .ev{grid-template-columns:60px 1fr;gap:8px}
+    #lb{padding:10px}
+    .lb-nav{width:38px;height:38px;font-size:22px}
+    .lb-nav.prev{left:8px} .lb-nav.next{right:8px}
+    .lb-close{top:10px;right:10px}
+  }
 
   @media print{
     body{background:#fff;color:#111}
@@ -273,8 +325,11 @@
 
 <div id="lb"><div class="lb-inner">
   <div class="lb-imgwrap"><button class="lb-close" onclick="closeLb()">✕</button>
+    <button class="lb-nav prev" id="lb-prev" aria-label="Previous">‹</button>
+    <button class="lb-nav next" id="lb-next" aria-label="Next">›</button>
     <img id="lb-img" alt=""><div id="lb-ring"></div></div>
   <div class="lb-cap" id="lb-cap"></div>
+  <div class="lb-count" id="lb-count"></div>
 </div></div>
 
 <script>
@@ -392,9 +447,16 @@ function fmtCall(c){
     .replace(/"([\w.-]+)":/g,'<span class="k">"$1"</span>:');
 }
 
-/* lightbox registry — avoids complex inline attribute values */
+/* lightbox registry — avoids complex inline attribute values.
+   `group` chains frames of one flow so the lightbox can page through them. */
 const LB=[];
-function lbRef(key,cap,fail,hl){LB.push({key,cap,fail,hl});return LB.length-1;}
+const LB_GROUPS={};
+function lbRef(key,cap,fail,hl,group){
+  const ref=LB.length;
+  LB.push({key,cap,fail,hl,group:group||null});
+  if(group){(LB_GROUPS[group]=LB_GROUPS[group]||[]).push(ref);}
+  return ref;
+}
 function ringStyle(hl){return 'left:'+hl.x+'%;top:'+hl.y+'%;width:'+hl.w+'%;height:'+hl.h+'%';}
 
 /* shot thumbnail (collapsible / lightbox trigger) */
@@ -406,12 +468,13 @@ function shotThumb(key,cap,fail,hl){
 
 /* journey filmstrip */
 function renderJourney(f){
+  const grp='j-'+f.id;
   let frames = f.frames.map((fr,i)=>{
     const ring = fr.hl?'<div class="hlring" style="left:'+fr.hl.x+'%;top:'+fr.hl.y+'%;width:'+fr.hl.w+'%;height:'+fr.hl.h+'%"></div>':'';
     const kind = fr.kind==='a'?'agent':'scripted';
     const kindLabel = fr.kind==='a'?'Agent':'Scripted';
     const frameHtml =
-      '<div class="frame '+(fr.fail?'fail':'')+'" data-lb="'+lbRef(fr.shot,fr.cap,fr.fail,fr.hl||null)+'">'+
+      '<div class="frame '+(fr.fail?'fail':'')+'" data-lb="'+lbRef(fr.shot,fr.cap,fr.fail,fr.hl||null,grp)+'">'+
         '<div class="thumb"><img src="'+SHOTS[fr.shot]+'" alt="">'+ring+'</div>'+
         '<div class="cap"><div class="top">'+
           '<span class="fnum">'+String(i+1).padStart(2,'0')+'</span>'+
@@ -461,9 +524,9 @@ function renderFlow(f,idx){
 }
 
 /* lightbox */
-function openLb(ref){
+let lbGroup=null, lbPos=0;
+function showLb(ref){
   const {key,cap,fail,hl}=LB[ref];
-  const lb=document.getElementById('lb');
   document.getElementById('lb-img').src=SHOTS[key];
   const ring=document.getElementById('lb-ring');
   if(hl){ring.className='hlring '+(fail?'fail':'');
@@ -474,12 +537,50 @@ function openLb(ref){
   const capEl=document.getElementById('lb-cap');
   capEl.className='lb-cap'+(fail?' fail':'');
   capEl.innerHTML=(fail?'<span class="vpill fail">Failure</span>':'')+'<span class="ctext">'+esc(cap)+'</span>';
-  lb.classList.add('on');
+}
+function updateLbNav(){
+  const multi=lbGroup&&lbGroup.length>1;
+  document.getElementById('lb-prev').disabled=!multi||lbPos===0;
+  document.getElementById('lb-next').disabled=!multi||lbPos===lbGroup.length-1;
+  document.getElementById('lb-count').textContent=multi?(lbPos+1)+' / '+lbGroup.length:'';
+}
+function openLb(ref){
+  const e=LB[ref];
+  lbGroup=e.group?LB_GROUPS[e.group]:[ref];
+  lbPos=lbGroup.indexOf(ref);
+  showLb(ref);
+  updateLbNav();
+  document.getElementById('lb').classList.add('on');
+}
+function lbStep(dir){
+  if(!lbGroup) return;
+  const n=lbPos+dir;
+  if(n<0||n>=lbGroup.length) return;
+  lbPos=n; showLb(lbGroup[lbPos]); updateLbNav();
 }
 document.addEventListener('click',e=>{const t=e.target.closest('[data-lb]');if(t){e.stopPropagation();openLb(+t.dataset.lb);}});
-function closeLb(){document.getElementById('lb').classList.remove('on');}
+function closeLb(){document.getElementById('lb').classList.remove('on');lbGroup=null;}
+document.getElementById('lb-prev').addEventListener('click',e=>{e.stopPropagation();lbStep(-1);});
+document.getElementById('lb-next').addEventListener('click',e=>{e.stopPropagation();lbStep(1);});
 document.getElementById('lb').addEventListener('click',e=>{if(e.target.id==='lb')closeLb();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLb();});
+document.addEventListener('keydown',e=>{
+  if(!document.getElementById('lb').classList.contains('on')) return;
+  if(e.key==='Escape')closeLb();
+  else if(e.key==='ArrowLeft')lbStep(-1);
+  else if(e.key==='ArrowRight')lbStep(1);
+});
+/* swipe navigation on the image */
+(function(){
+  const wrap=document.querySelector('.lb-imgwrap');
+  let x0=null,y0=null;
+  wrap.addEventListener('touchstart',e=>{const t=e.changedTouches[0];x0=t.clientX;y0=t.clientY;},{passive:true});
+  wrap.addEventListener('touchend',e=>{
+    if(x0===null) return;
+    const t=e.changedTouches[0],dx=t.clientX-x0,dy=t.clientY-y0;
+    if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy))lbStep(dx<0?1:-1);
+    x0=y0=null;
+  },{passive:true});
+})();
 
 /* boot */
 renderHeader();

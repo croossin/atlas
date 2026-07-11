@@ -1,0 +1,91 @@
+name: Atlas QA
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write        # publish report to gh-pages
+  pull-requests: write   # comment results on the PR
+
+concurrency:
+  group: atlas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install demo app
+        working-directory: demo-app
+        run: npm ci
+
+      - name: Install Atlas
+        working-directory: atlas
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: atlas
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Atlas
+        id: atlas
+        working-directory: atlas
+        run: |
+          set +e
+          npm run atlas --silent -- run --config ../atlas.yaml
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          RUN_DIR=$(ls -td ../atlas-runs/* | head -1)
+          echo "run_dir=${RUN_DIR#../}" >> "$GITHUB_OUTPUT"   # repo-relative
+
+      - name: Upload report artifact
+        if: always() && steps.atlas.outputs.run_dir
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-report
+          path: ${{ steps.atlas.outputs.run_dir }}
+
+      - name: Stage report for Pages
+        if: always() && github.event_name == 'pull_request' && steps.atlas.outputs.run_dir
+        run: |
+          mkdir -p site
+          cp "${{ steps.atlas.outputs.run_dir }}/report.html" site/index.html
+
+      - name: Publish report to GitHub Pages
+        if: always() && github.event_name == 'pull_request' && steps.atlas.outputs.run_dir
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          destination_dir: pr-${{ github.event.pull_request.number }}/run-${{ github.run_number }}
+          keep_files: true
+          commit_message: 'atlas report: PR #${{ github.event.pull_request.number }} run ${{ github.run_number }}'
+
+      - name: Comment results on PR
+        if: always() && github.event_name == 'pull_request' && steps.atlas.outputs.run_dir
+        working-directory: atlas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-${{ github.event.pull_request.number }}/run-${{ github.run_number }}/
+        run: |
+          npx tsx src/comment.ts "../${{ steps.atlas.outputs.run_dir }}/results.json" "$REPORT_URL" > /tmp/atlas-comment.md
+          # Update the existing Atlas comment if present, otherwise create one
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '[.[] | select(.body | contains("<!-- atlas-report -->"))][0].id' 2>/dev/null || true)
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING" -F body=@/tmp/atlas-comment.md
+          else
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -F body=@/tmp/atlas-comment.md
+          fi
+
+      - name: Gate on Atlas result
+        if: always()
+        run: exit ${{ steps.atlas.outputs.exit_code || 1 }}

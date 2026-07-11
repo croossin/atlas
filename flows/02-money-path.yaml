@@ -1,0 +1,65 @@
+id: money-path
+name: Money path — new client to invoiced policy to receipt
+description: >
+  Hybrid flow. Deterministic steps drive the known ground (create client, create policy,
+  invoice); an agent step then verifies the accounting actually holds together —
+  balance math, transaction codes, and workflow activities.
+tags: [accounting, hybrid]
+steps:
+  - do: goto
+    path: /clients/new
+  - do: fill
+    label: Client name
+    value: Atlas Verification LLC
+  - do: select
+    label: Account type
+    value: Commercial
+  - do: fill
+    label: Primary contact
+    value: Quinn Harper
+  - do: click
+    role: button
+    name: Create Client
+  - do: expect_text
+    text: Client "Atlas Verification LLC" created
+
+  - do: click
+    role: link
+    name: Add Policy
+  - do: select
+    label: Line of business
+    value: General Liability
+  - do: select
+    label: Carrier
+    value: Pacific Standard
+  - do: fill
+    label: Annual premium ($)
+    value: "5200"
+  - do: click
+    role: button
+    name: Create Policy
+  - do: expect_text
+    text: created
+
+  - do: click
+    role: button
+    name: Generate Invoice
+  - do: expect_text
+    text: "Invoice generated: $5200.00"
+  - do: screenshot
+    note: Policy invoiced
+
+  - do: agent
+    goal: |
+      A client "Atlas Verification LLC" was just created with one General Liability policy
+      (annual premium $5,200.00) which has been invoiced, and no payments recorded yet.
+
+      Verify the full money path is consistent:
+      1. Open the client's account page. The account balance must be exactly $5200.00.
+      2. The transactions list must contain exactly one NEWB transaction for $5200.00 on the policy.
+      3. Record a receipt of $5200.00 (payment method: Check) on this client.
+      4. After the receipt, the account balance must be exactly $0.00 and a RCPT activity must appear.
+      5. The activities list for this client must include activities for: account creation (NACC),
+         new policy (NPOL), invoice (INVC), and the receipt (RCPT).
+
+      Fail if any amount, transaction code, or activity is missing or wrong.

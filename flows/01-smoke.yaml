@@ -1,0 +1,43 @@
+id: smoke
+name: Smoke — navigation and seeded book of business
+description: >
+  Fully deterministic. Verifies the app boots with the seeded book: dashboard stats,
+  account search, client detail, and policy detail all render the expected records.
+tags: [smoke, scripted]
+steps:
+  - do: goto
+    path: /
+  - do: expect_text
+    text: Home Base
+  - do: expect_text
+    text: Client accounts
+  - do: screenshot
+    note: Dashboard after seed
+
+  - do: goto
+    path: /clients
+  - do: expect_text
+    text: Lakeside Manufacturing Co
+  - do: expect_text
+    text: Harbor Point Logistics
+
+  - do: fill
+    label: Search clients
+    value: Bluebird
+  - do: click
+    role: button
+    name: Locate
+  - do: expect_text
+    text: Bluebird Cafe Group
+  - do: expect_not_text
+    text: Lakeside Manufacturing Co
+
+  - do: click
+    role: link
+    name: Bluebird Cafe Group
+  - do: expect_text
+    text: Property
+  - do: expect_text
+    text: Ironbridge Specialty
+  - do: screenshot
+    note: Client detail

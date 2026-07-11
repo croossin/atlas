@@ -1,0 +1,19 @@
+# Atlas pipeline configuration.
+# `atlas run` provisions the target, seeds it, runs the flows, and writes a report.
+
+target:
+  name: Meridian AMS
+  command: node src/server.js
+  cwd: demo-app
+  health: /api/health
+  env: {}          # add ATLAS_BUG=endorsement-prorate here (or via --env) to inject a regression
+
+seed:
+  endpoint: /api/seed
+  dataset: standard-book
+
+flows: flows
+
+agent:
+  # model: sonnet   # optional override; defaults to your Claude Code default model
+  maxTurns: 40

@@ -1,0 +1,36 @@
+id: endorsement
+name: Endorsement — mid-term premium change is pro-rated correctly
+description: >
+  Agent-led accounting verification on seeded data. The agent processes a mid-term
+  endorsement and independently recomputes the pro-rata billing from the policy's own
+  term dates — the class of defect confirmation messages never reveal.
+tags: [accounting, endorsement, agent]
+steps:
+  - do: goto
+    path: /clients
+  - do: click
+    role: link
+    name: Harbor Point Logistics
+  - do: click
+    role: link
+    name: MER-COMM
+  - do: screenshot
+    note: Policy before endorsement
+
+  - do: agent
+    goal: |
+      You are on a Commercial Auto policy for Harbor Point Logistics that is mid-term.
+
+      1. Record the policy's current annual premium, effective date, and expiration date.
+      2. Process an endorsement with an annualized premium change of $730.00 and the
+         description "Added 2019 Freightliner Cascadia".
+      3. The app must bill the endorsement pro-rata for the REMAINING days of the policy
+         term: expected billed amount = 730 × (days from today until expiration) ÷ (total
+         days in the term). Compute this yourself from the dates you recorded and today's
+         date. A tolerance of ±$4 (about ±2 days of proration) is acceptable.
+      4. Verify the endorsement transaction (code ENDT) on the policy shows the correctly
+         pro-rated amount, and that the annual premium increased by exactly $730.00.
+      5. Verify an ENDT workflow activity was logged for the client.
+
+      Show your proration math in the reasoning. Fail with expected vs actual if the billed
+      amount is materially wrong or the activity is missing.

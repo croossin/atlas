@@ -1,0 +1,13 @@
+{
+  "name": "meridian-ams",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Meridian AMS — an Epic-shaped insurance agency management demo app; the showcase target for Atlas.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}

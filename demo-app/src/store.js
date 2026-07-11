@@ -176,15 +176,9 @@ function endorsePolicy(policy, premiumChange, description) {
     termDays,
     Math.max(0, Math.round((today() - new Date(policy.effectiveDate)) / DAY_MS))
   );
-  const remainingDays = termDays - elapsedDays;
 
-  let prorated;
-  if (hasBug('endorsement-prorate')) {
-    // BUG: proration factor inverted — bills for ELAPSED days instead of remaining days
-    prorated = round2(change * (elapsedDays / termDays));
-  } else {
-    prorated = round2(change * (remainingDays / termDays));
-  }
+  const prorationFactor = elapsedDays / termDays;
+  const prorated = round2(change * prorationFactor);
 
   policy.premium = round2(policy.premium + change);
   const txn = addTransaction(
